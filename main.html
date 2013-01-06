@@ -3,15 +3,38 @@
 </head>
 
 <body>
-    {{{loginButtons}}}
+    {{> login}}
+    {{> main}}
 </body>
 
+<template name="login">
+    <div class="container-fluid">
+        <div class="row-fluid">
+            <div class="span3 login">
+                {{{loginButtons}}}
+            </div>
+            <div class="users span9">
+                <ul class="connected">
+                    <li class="">john </li>
+                    <li class="speaker">jill</li>
+                    <li class="">danny</li>
+                    <li class="">dana</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</template>
+
 <template name="main">
-    <h1>Shared UI</h1>
-    <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod
-    tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,
-    quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
-    consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse
-    cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non
-    proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+    <div class="container-fluid">
+        <h1>Shared UI</h1>
+        <div class="row-fluid">
+            <ul class="main-btns">
+                <li class="span3">1</li>
+                <li class="span3 selected">2</li>
+                <li class="span3">3</li>
+                <li class="span3">4</li>
+            </ul>
+        </div>
+    </div>
 </template>

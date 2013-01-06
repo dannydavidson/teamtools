@@ -1,7 +1,7 @@
 var Teamtools = {};
 
 // defaults
-Teamtools.interval = 1000;
+Teamtools.interval = 2000;
 Teamtools.counter = 0;
 Teamtools.latency = 0;
 Teamtools.sync_frequency = 4;
