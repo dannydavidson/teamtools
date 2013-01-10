@@ -1,5 +1,10 @@
 var Teamtools = {};
 
+//constants
+Teamtools.CLIENT_COLLECTION = 'teamtools_client';
+Teamtools.SESSION_COLLECTION = 'teamtools_session';
+Teamtools.TIME_METHOD = 'teamtools_time';
+
 // defaults
 Teamtools.interval = 2000;
 Teamtools.counter = 0;
@@ -13,8 +18,8 @@ Teamtools.flag_callbacks = [];
 Teamtools.drop_callbacks = [];
 
 // collections
-Teamtools.client = new Meteor.Collection('teamtools_client');
-Teamtools.session = new Meteor.Collection('teamtools_session');
+Teamtools.client = new Meteor.Collection(Teamtools.CLIENT_COLLECTION);
+Teamtools.session = new Meteor.Collection(Teamtools.SESSION_COLLECTION);
 
 if (Meteor.isServer) {
 
@@ -24,11 +29,11 @@ if (Meteor.isServer) {
         }
     });
 
-    Meteor.publish('teamtools_client', function () {
+    Meteor.publish(Teamtools.CLIENT_COLLECTION, function () {
         return Teamtools.client.find({'user': this.userId});
     });
 
-    Meteor.publish('teamtools_session', function () {
+    Meteor.publish(Teamtools.SESSION_COLLECTION, function () {
         return Teamtools.session.find({});
     });
 
@@ -84,49 +89,78 @@ if (Meteor.isServer) {
     }
 
     Teamtools._scandrops = function () {
-        var time = Meteor.call('teamtools_time');
+        
+        var time = Meteor.call(Teamtools.TIME_METHOD);
+        
         var clients = Teamtools.client.find({});
+        var sessions = Teamtools.session.find({});
+        
+        // clean up for sessions
+        sessions.forEach(function (session) {
+            var count = Teamtools.client.find({'session': session._id}).count();
+            if (count == 0) {
+                Teamtools.session.remove(session._id);
+            }
+        });
+
+        // clean up for clients
         clients.forEach(function (client) {
-            var t = time - Teamtools.interval - client.latency - Teamtools.flag_buffer;
+            var t = (time - Teamtools.interval - client.latency 
+                     - Teamtools.flag_buffer);
             if (!client.flagged && client.last_ping <= t) {
                 Teamtools.client.update(
                     {'_id': client._id}, 
                     {'$set': {'flagged': time}}, 
                     function (err) {
                         if (!_.isObject(err)) {
-                            _.each(Teamtools.flag_callbacks, function (callback) {
-                                callback(client.user, client._id);
-                            });
+                            _.each(
+                                Teamtools.flag_callbacks, 
+                                function (callback) {
+                                    callback(client.user, client._id);
+                                }
+                            );
                         }
                         else {
                             console.log(err);
                         }
                     });
             }
-            else if (client.flagged && client.flagged <= t - Teamtools.drop_buffer) {
+            else if (client.flagged &&
+                     client.flagged <= t - Teamtools.drop_buffer) {
                 Teamtools.client.remove({'_id': client._id}, function (err) {
                     if (!_.isObject(err)) {
-                        var session = Teamtools.session.findOne({'_id': client.session});
+                        var session = Teamtools.session.findOne({
+                            '_id': client.session
+                        });
                         if (_.isObject(session)) {
                             if (client.user == session.speaker) {
                                 Teamtools.session.update(
                                     {'_id': session._id}, 
                                     {'$set': {'speaker': null}});
                             }
-                            else if (_.contains(session.requesting, client.user)) {
+                            else if (_.contains(session.requesting, 
+                                                client.user)) {
                                 Teamtools.session.update(
                                     {'_id': session._id}, 
                                     {'$set': {
-                                        'requesting': _.without(session.requesting, client.user)}
+                                        'requesting': _.without(
+                                            session.requesting, 
+                                            client.user
+                                        )}
                                     });
                             };
-                            _.each(Teamtools.drop_callbacks, function (callback) {
-                                callback(client.user, client._id);
-                            });
+                            _.each(
+                                Teamtools.drop_callbacks, 
+                                function (callback) {
+                                    callback(client.user, client._id);
+                                }
+                            );
                         }
-                        // else {
-                        //     //console.log('Client not joined to session or session was removed without updating client')
-                        // }
+                        else {
+                            console.log('Client not joined to session or'
+                                     + ' session was removed without' 
+                                     + ' updating client')
+                        }
                     }
                     else {
                         console.log(err);
@@ -143,74 +177,134 @@ if (Meteor.isServer) {
 
 if (Meteor.isClient) {
 
-    Teamtools.getSessionId = function (val) {
-        
-        // do deps stuff
-        var context = Meteor.deps.Context.current;
-        if (context && !Teamtools.listeners[context.id]) {
-            Teamtools.listeners[context.id] = context;
-            context.onInvalidate(function () {
-                delete Teamtools.listeners[context.id];
+    Teamtools.listeners = {};
+    Teamtools._sessionId = null;
+
+    Teamtools.subs = {'queues': {}};
+    Teamtools.subs.load = function (config) {
+        var id = _.uniqueId();
+        var q = Teamtools.subs.queues[id] = {};
+        _.each(config.subs, function (sub) {
+            q[sub.key] = false;
+            Teamtools.subscriptions.push(Meteor.subscribe(sub.key, function () {
+                q[sub.key] = true;
+                if (_.isFunction(sub.callback)) {
+                    sub.callback();
+                }
+                if (_.all(q, _.identity)) {
+                    delete Teamtools.subs.queues[id];
+                    if (_.isFunction(config.onComplete)) {
+                        config.onComplete();
+                    }
+                }
+            }));
+        });
+    };
+
+    Teamtools.sessionId = function (val) {
+
+        if (val) {
+            // if (val === Teamtools._sessionId) {
+            //     return;
+            // }
+            Teamtools._sessionId = val;
+            Teamtools.client.update({'id': Teamtools.id}, {'$set': {"session": val}})
+            _.each(Teamtools.listeners, function (context) {
+                Teamtools.listeners[context.id].invalidate();
             });
         }
+        else {
+            // do deps stuff
+            var context = Meteor.deps.Context.current;
+            if (context && !Teamtools.listeners[context.id]) {
+                Teamtools.listeners[context.id] = context;
+                context.onInvalidate(function () {
+                    delete Teamtools.listeners[context.id];
+                });
+            }
 
-        // return session value
+            return Teamtools._sessionId;
+        }
+
+    }
+
+    Teamtools.usersInSession = function (sessionId) {
+        
+        // if (!sessionId) {
+        //     sessionId = Teamtools._sessionId;
+        // }
+        
         if (Meteor.user()) {
-            // get session (or if empty create new session) from Teamtools.session collection
-            if (!Teamtools.sessionId) {
-                Teamtools.sessionId = Teamtools.session.insert({'speaker': Meteor.userId()})
-            } 
-            return Teamtools.sessionId;
-        }
-        else {
-            // get session from local store
-        }
-    }
+            var clients = Teamtools.client.find({
+                'session': sessionId
+            }, {reactive: false});
+            console.log('clients length');
+            console.log(clients.count());
+            var userids = _.uniq(clients.map(function (client) {
+                console.log(client);
+                return client.user;
+            }));
+            console.log("userids");
+            console.log(userids);
 
-    Teamtools.setSessionId = function (val) {
-        if (val === Teamtools.sessionId) {
-            return;
+            var session = Teamtools.session.findOne(sessionId);
+            if (session) {
+                var d = _.map(userids, function (userid) {
+                    var u = Meteor.users.findOne(userid);
+                    if (session.speaker == userid) {
+                        u.speaker = true;
+                    }
+                    return u;
+                });
+                console.log('data');
+                console.log(d);
+                return d;
+            }
         }
-        Teamtools.sessionId = val;
-        _.each(Teamtools.listeners, function (contextId) {
-            Teamtools.listeners[contextId].invalidate();
-        });
-    }
-
-    Teamtools.attr = function (key, value) {
-        if (value) {
-            // setter
-        }
-        else {
-            // getter
-        }
+        return [];
     }
 
     Teamtools.register = function () {
         // clean up first
         Teamtools.unregister();
-
-        // subscribe to Teamtools
         Teamtools.subscriptions = [];
-        Teamtools.subscriptions.push(Meteor.subscribe('teamtools_session', function () {
-            console.log('Subscribed to Teamtools session collection')
-        }));
-
-        Teamtools.subscriptions.push(Meteor.subscribe('teamtools_client', function () {
-            console.log('Subscribed to Teamtools client collection')
-        }));
-
-        if (Meteor.userId()) {
-            var start_call = new Date().getTime();
-            Meteor.call('teamtools_time', function (err, result) {
-                Teamtools.latency = new Date().getTime() - start_call;
-                Teamtools.time = result;
-                Teamtools.id = Meteor.uuid();
-                Teamtools._ping();
-                Teamtools.register.handle = Meteor.setInterval(Teamtools._ping,
-                                                               Teamtools.interval);
-            });
-        }
+        Teamtools.subs.load({
+            'subs': [
+                {
+                    'key': Teamtools.SESSION_COLLECTION,
+                    'callback': function () {
+                        console.log('Subscribed to Teamtools session collection');
+                    }
+                },
+                {
+                    'key': Teamtools.CLIENT_COLLECTION,
+                    'callback':  function () {
+                        console.log('Subscribed to Teamtools client collection');
+                    }
+                }
+            ],
+            'onComplete': function () {
+                if (Meteor.userId()) {
+                    console.log('starting ping');
+                    Teamtools.first_ping = true;
+                    Teamtools.sessionId(Teamtools.session.insert({
+                        'speaker': Meteor.userId()
+                    }));
+                    //Teamtools.sessionId(Teamtools._sessionId);
+                    var start_call = new Date().getTime();
+                    Meteor.call(Teamtools.TIME_METHOD, function (err, result) {
+                        Teamtools.latency = new Date().getTime() - start_call;
+                        Teamtools.time = result;
+                        Teamtools.id = Meteor.uuid();
+                        Teamtools._ping();
+                        Teamtools.register.handle = Meteor.setInterval(
+                            Teamtools._ping,
+                            Teamtools.interval
+                        );
+                    });
+                }
+            }
+        });
     }
 
     Teamtools.unregister = function () {
@@ -220,7 +314,8 @@ if (Meteor.isClient) {
         if (_.isArray(Teamtools.subscriptions)) {
             _.each(Teamtools.subscriptions, function (sub) {
                 sub.stop();
-            })
+            });
+            Teamtools.subscriptions = undefined;
         }
     }
 
@@ -230,7 +325,7 @@ if (Meteor.isClient) {
             // if nth loop without time update
             Teamtools.counter = 0;
             var start_call = new Date().getTime();
-            Meteor.call('teamtools_time', function (err, result) {
+            Meteor.call(Teamtools.TIME_METHOD, function (err, result) {
                 Teamtools.latency = new Date().getTime() - start_call;
                 Teamtools.time = result;
             });
@@ -252,7 +347,7 @@ if (Meteor.isClient) {
                         'last_ping': Teamtools.time, 
                         'latency': Teamtools.latency, 
                         'user': Meteor.userId(),
-                        'session': Teamtools.getSessionId()
+                        'session': Teamtools.sessionId()
                     }});
             } 
             else {
@@ -261,7 +356,12 @@ if (Meteor.isClient) {
                     'last_ping': Teamtools.time, 
                     'latency': Teamtools.latency, 
                     'user': Meteor.userId(),
-                    'session': Teamtools.getSessionId()
+                    'session': Teamtools.sessionId()
+                }, function (err, id) {
+                    if (Teamtools.first_ping) {
+                        Teamtools.sessionId(Teamtools._sessionId);
+                        Teamtools.first_ping = false;
+                    }
                 });
             }
         }
@@ -269,7 +369,7 @@ if (Meteor.isClient) {
 
     Meteor.startup(function () {
 
-        // set up autorun to toggle registration
+        // set up autorun to toggle registration at login
         Meteor.autorun(function () {
             var u = Meteor.user();
             if (u) {

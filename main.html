@@ -15,10 +15,9 @@
             </div>
             <div class="users span9">
                 <ul class="connected">
-                    <li class="">john </li>
-                    <li class="speaker">jill</li>
-                    <li class="">danny</li>
-                    <li class="">dana</li>
+                    {{#each connected}}
+                    <li class="{{#if speaker}}speaker{{/if}}">{{username}}</li>
+                    {{/each}}
                 </ul>
             </div>
         </div>
