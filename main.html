@@ -4,8 +4,17 @@
 
 <body>
     {{> login}}
-    {{> main}}
+    {{> sessions}}
+    {{> sections}}
 </body>
+
+<template name="sessions">
+    <div class="span3 pull-right">
+        {{#each sessions}}
+        <div>{{speaker}}</div>
+        {{/each}}
+    </div>
+</template>
 
 <template name="login">
     <div class="container-fluid">
@@ -16,7 +25,7 @@
             <div class="users span9">
                 <ul class="connected">
                     {{#each connected}}
-                    <li class="{{#if speaker}}speaker{{/if}}">{{username}}</li>
+                    <li class="btn {{#if speaker}}speaker{{/if}}" style="{{#if flagged}}background: #FF0000;{{/if}}">{{username}}</li>
                     {{/each}}
                 </ul>
             </div>
@@ -24,15 +33,14 @@
     </div>
 </template>
 
-<template name="main">
+<template name="sections">
     <div class="container-fluid">
         <h1>Shared UI</h1>
         <div class="row-fluid">
             <ul class="main-btns">
-                <li class="span3">1</li>
-                <li class="span3 selected">2</li>
-                <li class="span3">3</li>
-                <li class="span3">4</li>
+                {{#each sections}}
+                <li class="span3 btn selected">{{title}}</li>
+                {{/each}}
             </ul>
         </div>
     </div>
